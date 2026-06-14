@@ -18,7 +18,6 @@ ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff', 'webp'}
 # ------------------ Cached Conversions ------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def convert_pdf_to_docx_cached(pdf_bytes: bytes) -> bytes:
-    """Cached PDF to DOCX conversion."""
     with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
         tmp_pdf.write(pdf_bytes)
         tmp_pdf_path = tmp_pdf.name
@@ -36,7 +35,6 @@ def convert_pdf_to_docx_cached(pdf_bytes: bytes) -> bytes:
 
 @st.cache_data(show_spinner=False)
 def convert_image_bytes_cached(input_bytes: bytes, output_format: str) -> bytes:
-    """Cached image format conversion."""
     img = Image.open(BytesIO(input_bytes))
     if output_format.upper() == 'JPEG' and img.mode in ('RGBA', 'P'):
         img = img.convert('RGB')
@@ -46,36 +44,39 @@ def convert_image_bytes_cached(input_bytes: bytes, output_format: str) -> bytes:
 
 # ------------------ Validation Helpers ------------------
 def fast_brightness(img: Image.Image) -> float:
-    """Compute average brightness quickly using ImageStat."""
     gray = img.convert('L')
     stat = ImageStat.Stat(gray)
     return stat.mean[0]
 
 def validate_visa_photo(img: Image.Image) -> tuple:
-    """Validate visa photo – returns (is_valid, list_of_warnings)."""
     warnings = []
-    # Dimensions
     if img.size != (VISA_STANDARD['width'], VISA_STANDARD['height']):
         warnings.append(f"Dimensions: {img.width}x{img.height} (needs {VISA_STANDARD['width']}x{VISA_STANDARD['height']})")
-    # Brightness (downsample for speed)
     small = img.resize((100, 100), Image.Resampling.LANCZOS)
     brightness = fast_brightness(small)
     if brightness < VISA_STANDARD['min_brightness']:
         warnings.append(f"Background too dark ({brightness:.0f} < {VISA_STANDARD['min_brightness']})")
-    # Face ratio – dummy but fast (replace with OpenCV if needed)
     face_ratio = 0.6
     if not (VISA_STANDARD['face_height_ratio_min'] <= face_ratio <= VISA_STANDARD['face_height_ratio_max']):
-        warnings.append(f"Face height ratio should be 50-70% of photo height.")
+        warnings.append("Face height ratio should be 50-70% of photo height.")
     return len(warnings) == 0, warnings
 
-def correct_to_visa_standard(img: Image.Image) -> Image.Image:
-    """Resize/crop to 600x600 square (center crop)."""
+def correct_to_visa_standard(img: Image.Image, mode: str = "crop") -> Image.Image:
     target_w, target_h = VISA_STANDARD['width'], VISA_STANDARD['height']
-    side = min(img.width, img.height)
-    left = (img.width - side) // 2
-    top = (img.height - side) // 2
-    img_cropped = img.crop((left, top, left + side, top + side))
-    img_resized = img_cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    if mode == "crop":
+        side = min(img.width, img.height)
+        left = (img.width - side) // 2
+        top = (img.height - side) // 2
+        img_cropped = img.crop((left, top, left + side, top + side))
+        img_resized = img_cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    else:  # "fit" mode
+        img.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+        img_resized = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+        paste_x = (target_w - img.width) // 2
+        paste_y = (target_h - img.height) // 2
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        img_resized.paste(img, (paste_x, paste_y))
     if img_resized.mode != 'RGB':
         img_resized = img_resized.convert('RGB')
     return img_resized
@@ -97,7 +98,6 @@ if uploaded_file is not None:
     file_bytes = uploaded_file.read()
     ext = uploaded_file.name.split('.')[-1].lower()
 
-    # ---------- PDF to Word ----------
     if conversion_type == "PDF to Word":
         if ext != 'pdf':
             st.error("Please upload a PDF file.")
@@ -115,7 +115,6 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-    # ---------- Image to Image ----------
     elif conversion_type == "Image to Image":
         if ext not in ALLOWED_IMAGE_EXT:
             st.error(f"Unsupported format. Use: {', '.join(ALLOWED_IMAGE_EXT)}")
@@ -127,17 +126,23 @@ if uploaded_file is not None:
                     out_name = uploaded_file.name.rsplit('.',1)[0] + f".{output_format.lower()}"
                     st.download_button(f"📥 Download {output_format}", out_bytes, out_name)
 
-    # ---------- Visa Photo ----------
     elif conversion_type == "Photo to Visa Standard":
         if ext not in ALLOWED_IMAGE_EXT:
             st.error(f"Please upload an image. Allowed: {', '.join(ALLOWED_IMAGE_EXT)}")
         else:
             img = Image.open(BytesIO(file_bytes))
             st.image(img, caption="Original", width=250)
+            
+            correction_mode = st.radio(
+                "Correction mode:",
+                ["Crop to fill (may cut content)", "Fit with padding (no crop, adds white borders)"],
+                index=0
+            )
+            mode = "crop" if correction_mode.startswith("Crop") else "fit"
+            
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("🔍 Validate"):
-                    # Downsample for faster validation
                     small_check = img.copy()
                     if max(small_check.size) > 1000:
                         small_check.thumbnail((800,800))
@@ -150,14 +155,13 @@ if uploaded_file is not None:
                             st.write(f"- {w}")
             with col2:
                 if st.button("✨ Correct & Download"):
-                    corrected = correct_to_visa_standard(img)
-                    st.image(corrected, caption="Corrected 600×600", width=250)
-                    # Validate after correction
+                    corrected = correct_to_visa_standard(img, mode=mode)
+                    st.image(corrected, caption=f"Corrected 600×600 ({mode})", width=250)
                     is_valid, warns = validate_visa_photo(corrected)
                     if is_valid:
                         st.success("✅ Corrected photo meets visa standard.")
                     else:
-                        st.info("Photo corrected to 600×600. Remaining warnings:")
+                        st.info("Corrected photo is 600×600. Remaining warnings:")
                         for w in warns:
                             st.write(f"- {w}")
                     buf = BytesIO()
@@ -166,4 +170,4 @@ if uploaded_file is not None:
 else:
     st.info("Upload a file to begin.")
 
-st.caption("⚡ Caching enabled: converting the same file again is instant. PDF→Word still depends on server CPU.")
+st.caption("⚡ Caching enabled. For visa photos, choose 'Fit' to avoid cropping.")
