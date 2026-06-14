@@ -1,19 +1,11 @@
 import streamlit as st
-import numpy as np
-from PIL import Image, ImageStat, ImageEnhance
+import os
 from io import BytesIO
+from PIL import Image, ImageStat, ImageEnhance
 import uuid
 
-import fitz  # PyMuPDF (SAFE PDF engine)
+import fitz  # PyMuPDF (safe PDF engine)
 import pytesseract
-from docx import Document
-from rembg import remove
-from supabase import create_client
-
-# ================= SUPABASE =================
-SUPABASE_URL = "YOUR_SUPABASE_URL"
-SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ================= CONFIG =================
 VISA_STANDARD = {
@@ -28,31 +20,20 @@ ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "bmp", "tiff", "webp"}
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# ================= AUTH =================
-def login_ui():
-    st.title("🔐 Login")
+if "user" not in st.session_state:
+    st.session_state.user = None
 
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
+# ================= SUPABASE (LAZY) =================
+supabase = None
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Login"):
-            res = supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-            st.session_state.user = res.user
-            st.rerun()
-
-    with col2:
-        if st.button("Sign Up"):
-            supabase.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            st.success("Check email for verification")
+def get_supabase():
+    global supabase
+    if supabase is None:
+        from supabase import create_client
+        SUPABASE_URL = "YOUR_SUPABASE_URL"
+        SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return supabase
 
 # ================= HISTORY =================
 def save_history(name, action):
@@ -62,7 +43,7 @@ def save_history(name, action):
         "action": action
     })
 
-# ================= PDF → TEXT → DOCX (SAFE) =================
+# ================= PDF → TEXT → DOCX =================
 def pdf_to_docx(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
@@ -70,6 +51,7 @@ def pdf_to_docx(pdf_bytes):
     for page in doc:
         text += page.get_text()
 
+    from docx import Document
     word = Document()
     word.add_paragraph(text)
 
@@ -77,12 +59,14 @@ def pdf_to_docx(pdf_bytes):
     word.save(buf)
     return buf.getvalue()
 
-# ================= OCR IMAGE =================
+# ================= OCR =================
 def image_to_text(img):
     return pytesseract.image_to_string(img)
 
-# ================= BACKGROUND REMOVAL =================
+# ================= BACKGROUND REMOVAL (LAZY) =================
 def remove_background(img):
+    from rembg import remove  # lazy import FIX (prevents freeze)
+
     output = remove(img)
     return Image.open(BytesIO(output)).convert("RGB")
 
@@ -108,10 +92,38 @@ def fix_visa(img):
 
     return img.resize((600, 600))
 
-# ================= UI =================
-st.set_page_config(page_title="AI Smart Document Studio", layout="wide")
+# ================= AUTH =================
+def login_ui():
+    st.title("🔐 Login")
 
-if "user" not in st.session_state:
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Login"):
+            client = get_supabase()
+            res = client.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+            st.session_state.user = res.user
+            st.rerun()
+
+    with col2:
+        if st.button("Sign Up"):
+            client = get_supabase()
+            client.auth.sign_up({
+                "email": email,
+                "password": password
+            })
+            st.success("Check email to confirm")
+
+# ================= UI =================
+st.set_page_config(page_title="AI Smart Studio", layout="wide")
+
+if st.session_state.user is None:
     login_ui()
     st.stop()
 
@@ -130,7 +142,7 @@ with tabs[0]:
 
     if file:
         if st.button("Convert to Word"):
-            with st.spinner("Processing..."):
+            with st.spinner("Processing PDF..."):
                 out = pdf_to_docx(file.read())
                 save_history(file.name, "PDF → DOCX")
 
@@ -183,19 +195,20 @@ with tabs[2]:
         img = Image.open(file)
 
         if st.button("Remove Background"):
-            result = remove_background(img)
-            save_history(file.name, "BG Removed")
+            with st.spinner("Processing..."):
+                result = remove_background(img)
+                save_history(file.name, "BG Removed")
 
-            st.image(result)
+                st.image(result)
 
-            buf = BytesIO()
-            result.save(buf, format="PNG")
+                buf = BytesIO()
+                result.save(buf, format="PNG")
 
-            st.download_button(
-                "Download PNG",
-                buf.getvalue(),
-                "no_bg.png"
-            )
+                st.download_button(
+                    "Download PNG",
+                    buf.getvalue(),
+                    "no_bg.png"
+                )
 
 # ================= HISTORY =================
 with tabs[3]:
