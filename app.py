@@ -1,173 +1,235 @@
 import streamlit as st
 import os
 import tempfile
+import uuid
 from io import BytesIO
-from PIL import Image, ImageStat
+
+import numpy as np
+from PIL import Image, ImageStat, ImageEnhance
 from pdf2docx import Converter
+import pytesseract
+import cv2
+from rembg import remove
+from docx import Document
+from supabase import create_client
 
-# ------------------ Configuration ------------------
+# ================= SUPABASE CONFIG =================
+SUPABASE_URL = "YOUR_SUPABASE_URL"
+SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ================= CONFIG =================
 VISA_STANDARD = {
-    'width': 600,
-    'height': 600,
-    'min_brightness': 200,
-    'face_height_ratio_min': 0.5,
-    'face_height_ratio_max': 0.7,
+    "width": 600,
+    "height": 600,
+    "min_brightness": 180,
 }
-ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff', 'webp'}
 
-# ------------------ Cached Conversions ------------------
-@st.cache_data(ttl=3600, show_spinner=False)
-def convert_pdf_to_docx_cached(pdf_bytes: bytes) -> bytes:
-    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
-        tmp_pdf.write(pdf_bytes)
-        tmp_pdf_path = tmp_pdf.name
-    with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as tmp_docx:
-        tmp_docx_path = tmp_docx.name
-    try:
-        cv = Converter(tmp_pdf_path)
-        cv.convert(tmp_docx_path, start=0, end=None)
-        cv.close()
-        with open(tmp_docx_path, 'rb') as f:
-            return f.read()
-    finally:
-        os.unlink(tmp_pdf_path)
-        os.unlink(tmp_docx_path)
+ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "bmp", "tiff", "webp"}
 
-@st.cache_data(show_spinner=False)
-def convert_image_bytes_cached(input_bytes: bytes, output_format: str) -> bytes:
-    img = Image.open(BytesIO(input_bytes))
-    if output_format.upper() == 'JPEG' and img.mode in ('RGBA', 'P'):
-        img = img.convert('RGB')
-    out = BytesIO()
-    img.save(out, format=output_format.upper())
-    return out.getvalue()
+# ================= SESSION HISTORY =================
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# ------------------ Validation Helpers ------------------
-def fast_brightness(img: Image.Image) -> float:
-    gray = img.convert('L')
-    stat = ImageStat.Stat(gray)
-    return stat.mean[0]
+# ================= AUTH =================
+def login_ui():
+    st.title("🔐 Login")
 
-def validate_visa_photo(img: Image.Image) -> tuple:
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Login"):
+            res = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+            st.session_state.user = res.user
+            st.success("Logged in!")
+            st.rerun()
+
+    with col2:
+        if st.button("Sign Up"):
+            supabase.auth.sign_up({
+                "email": email,
+                "password": password
+            })
+            st.success("Check email for confirmation")
+
+# ================= FACE DETECTION =================
+def detect_face_ratio(img: Image.Image):
+    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+
+    face_cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    )
+
+    faces = face_cascade.detectMultiScale(gray, 1.1, 5)
+
+    if len(faces) == 0:
+        return None
+
+    x, y, w, h = faces[0]
+    face_ratio = h / img.height
+    return face_ratio
+
+# ================= VISA VALIDATION =================
+def validate_visa(img):
     warnings = []
-    if img.size != (VISA_STANDARD['width'], VISA_STANDARD['height']):
-        warnings.append(f"Dimensions: {img.width}x{img.height} (needs {VISA_STANDARD['width']}x{VISA_STANDARD['height']})")
-    small = img.resize((100, 100), Image.Resampling.LANCZOS)
-    brightness = fast_brightness(small)
-    if brightness < VISA_STANDARD['min_brightness']:
-        warnings.append(f"Background too dark ({brightness:.0f} < {VISA_STANDARD['min_brightness']})")
-    face_ratio = 0.6
-    if not (VISA_STANDARD['face_height_ratio_min'] <= face_ratio <= VISA_STANDARD['face_height_ratio_max']):
-        warnings.append("Face height ratio should be 50-70% of photo height.")
+
+    if img.size != (600, 600):
+        warnings.append("Must be 600x600")
+
+    brightness = ImageStat.Stat(img.convert("L")).mean[0]
+    if brightness < VISA_STANDARD["min_brightness"]:
+        warnings.append("Image too dark")
+
+    face_ratio = detect_face_ratio(img)
+    if face_ratio:
+        if not (0.5 <= face_ratio <= 0.75):
+            warnings.append("Face not centered properly")
+    else:
+        warnings.append("No face detected")
+
     return len(warnings) == 0, warnings
 
-def correct_to_visa_standard(img: Image.Image, mode: str = "crop") -> Image.Image:
-    target_w, target_h = VISA_STANDARD['width'], VISA_STANDARD['height']
-    if mode == "crop":
-        side = min(img.width, img.height)
-        left = (img.width - side) // 2
-        top = (img.height - side) // 2
-        img_cropped = img.crop((left, top, left + side, top + side))
-        img_resized = img_cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
-    else:  # "fit" mode
-        img.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-        img_resized = Image.new("RGB", (target_w, target_h), (255, 255, 255))
-        paste_x = (target_w - img.width) // 2
-        paste_y = (target_h - img.height) // 2
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        img_resized.paste(img, (paste_x, paste_y))
-    if img_resized.mode != 'RGB':
-        img_resized = img_resized.convert('RGB')
-    return img_resized
+# ================= BACKGROUND REMOVAL =================
+def remove_bg(img):
+    output = remove(img)
+    return Image.open(BytesIO(output)).convert("RGB")
 
-# ------------------ Streamlit UI ------------------
-st.set_page_config(page_title="Fast File Converter", page_icon="⚡")
-st.title("⚡ Fast File Converter")
-st.markdown("Optimised for speed with caching.")
+# ================= IMAGE CORRECTION =================
+def fix_visa(img):
+    img = img.convert("RGB")
 
-conversion_type = st.radio(
-    "Choose conversion:",
-    ["PDF to Word", "Image to Image", "Photo to Visa Standard"],
-    horizontal=True
-)
+    # auto brightness boost
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(1.2)
 
-uploaded_file = st.file_uploader("Upload a file", type=None)
+    # resize
+    img = img.resize((600, 600))
 
-if uploaded_file is not None:
-    file_bytes = uploaded_file.read()
-    ext = uploaded_file.name.split('.')[-1].lower()
+    return img
 
-    if conversion_type == "PDF to Word":
-        if ext != 'pdf':
-            st.error("Please upload a PDF file.")
-        else:
-            with st.spinner("Converting PDF (this may take 10-60 seconds)..."):
-                try:
-                    docx_bytes = convert_pdf_to_docx_cached(file_bytes)
-                    st.success("Ready!")
-                    st.download_button(
-                        "📥 Download DOCX",
-                        docx_bytes,
-                        uploaded_file.name.replace('.pdf', '.docx'),
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                except Exception as e:
-                    st.error(f"Error: {e}")
+# ================= PDF OCR TO WORD =================
+def pdf_to_searchable_docx(pdf_bytes):
+    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp_pdf.write(pdf_bytes)
+    tmp_pdf.close()
 
-    elif conversion_type == "Image to Image":
-        if ext not in ALLOWED_IMAGE_EXT:
-            st.error(f"Unsupported format. Use: {', '.join(ALLOWED_IMAGE_EXT)}")
-        else:
-            output_format = st.selectbox("Output format", ["PNG","JPEG","BMP","GIF","TIFF","WEBP"])
-            if st.button("Convert"):
-                with st.spinner("Converting..."):
-                    out_bytes = convert_image_bytes_cached(file_bytes, output_format.lower())
-                    out_name = uploaded_file.name.rsplit('.',1)[0] + f".{output_format.lower()}"
-                    st.download_button(f"📥 Download {output_format}", out_bytes, out_name)
+    doc = Document()
+    text = pytesseract.image_to_string(Image.open(tmp_pdf.name))
 
-    elif conversion_type == "Photo to Visa Standard":
-        if ext not in ALLOWED_IMAGE_EXT:
-            st.error(f"Please upload an image. Allowed: {', '.join(ALLOWED_IMAGE_EXT)}")
-        else:
-            img = Image.open(BytesIO(file_bytes))
-            st.image(img, caption="Original", width=250)
-            
-            correction_mode = st.radio(
-                "Correction mode:",
-                ["Crop to fill (may cut content)", "Fit with padding (no crop, adds white borders)"],
-                index=0
+    doc.add_paragraph(text)
+
+    tmp_docx = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp_docx.name)
+
+    with open(tmp_docx.name, "rb") as f:
+        return f.read()
+
+# ================= HISTORY =================
+def save_history(name, filetype):
+    st.session_state.history.append({
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "type": filetype
+    })
+
+# ================= UI =================
+st.set_page_config(page_title="AI Smart Processor", layout="wide")
+
+if "user" not in st.session_state:
+    login_ui()
+    st.stop()
+
+st.title("⚡ AI Smart Document & Photo Processor")
+
+tabs = st.tabs([
+    "📄 PDF OCR",
+    "🪪 Visa Photo AI",
+    "✂️ Background Removal",
+    "📦 History"
+])
+
+# ================= PDF OCR =================
+with tabs[0]:
+    file = st.file_uploader("Upload PDF", type=["pdf"])
+
+    if file:
+        if st.button("Convert to Searchable Word"):
+            with st.spinner("Processing OCR..."):
+                result = pdf_to_searchable_docx(file.read())
+                save_history(file.name, "PDF OCR")
+
+                st.download_button(
+                    "Download DOCX",
+                    result,
+                    "output.docx"
+                )
+
+# ================= VISA PHOTO =================
+with tabs[1]:
+    file = st.file_uploader("Upload Photo", type=list(ALLOWED_IMAGE_EXT))
+
+    if file:
+        img = Image.open(file)
+
+        st.image(img, caption="Original")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Validate"):
+                ok, warns = validate_visa(img)
+                if ok:
+                    st.success("Valid visa photo")
+                else:
+                    st.warning(warns)
+
+        with col2:
+            if st.button("Fix Photo"):
+                fixed = fix_visa(img)
+                save_history(file.name, "Visa Fix")
+
+                st.image(fixed, caption="Fixed")
+                buf = BytesIO()
+                fixed.save(buf, format="JPEG")
+
+                st.download_button(
+                    "Download",
+                    buf.getvalue(),
+                    "visa.jpg"
+                )
+
+# ================= BACKGROUND REMOVAL =================
+with tabs[2]:
+    file = st.file_uploader("Upload Image", type=list(ALLOWED_IMAGE_EXT))
+
+    if file:
+        img = Image.open(file)
+
+        if st.button("Remove Background"):
+            result = remove_bg(img)
+            save_history(file.name, "BG Removed")
+
+            st.image(result)
+
+            buf = BytesIO()
+            result.save(buf, format="PNG")
+
+            st.download_button(
+                "Download PNG",
+                buf.getvalue(),
+                "no_bg.png"
             )
-            mode = "crop" if correction_mode.startswith("Crop") else "fit"
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔍 Validate"):
-                    small_check = img.copy()
-                    if max(small_check.size) > 1000:
-                        small_check.thumbnail((800,800))
-                    is_valid, warns = validate_visa_photo(small_check)
-                    if is_valid:
-                        st.success("✅ Photo meets requirements.")
-                    else:
-                        st.warning("Issues found:")
-                        for w in warns:
-                            st.write(f"- {w}")
-            with col2:
-                if st.button("✨ Correct & Download"):
-                    corrected = correct_to_visa_standard(img, mode=mode)
-                    st.image(corrected, caption=f"Corrected 600×600 ({mode})", width=250)
-                    is_valid, warns = validate_visa_photo(corrected)
-                    if is_valid:
-                        st.success("✅ Corrected photo meets visa standard.")
-                    else:
-                        st.info("Corrected photo is 600×600. Remaining warnings:")
-                        for w in warns:
-                            st.write(f"- {w}")
-                    buf = BytesIO()
-                    corrected.save(buf, format="JPEG", quality=90)
-                    st.download_button("📥 Download JPEG", buf.getvalue(), "visa_photo.jpg")
-else:
-    st.info("Upload a file to begin.")
 
-st.caption("⚡ Caching enabled. For visa photos, choose 'Fit' to avoid cropping.")
+# ================= HISTORY =================
+with tabs[3]:
+    st.subheader("Download History")
+
+    for item in st.session_state.history[::-1]:
+        st.write(f"📄 {item['name']} — {item['type']}")
