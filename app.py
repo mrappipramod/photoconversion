@@ -4,6 +4,10 @@ from io import BytesIO
 import uuid
 import fitz  # PyMuPDF
 import pytesseract
+import os
+
+# ================= SAFE ENV (optional speed tweak) =================
+os.environ["U2NET_HOME"] = "/tmp"
 
 # ================= CONFIG =================
 VISA_STANDARD = {
@@ -18,7 +22,6 @@ ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "bmp", "tiff", "webp"}
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# ================= HISTORY =================
 def save_history(name, action):
     st.session_state.history.append({
         "id": str(uuid.uuid4()),
@@ -26,7 +29,7 @@ def save_history(name, action):
         "action": action
     })
 
-# ================= PDF → TEXT → DOCX =================
+# ================= PDF → DOCX =================
 def pdf_to_docx(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
@@ -46,11 +49,16 @@ def pdf_to_docx(pdf_bytes):
 def image_to_text(img):
     return pytesseract.image_to_string(img)
 
-# ================= BACKGROUND REMOVAL (LAZY SAFE) =================
+# ================= SAFE BACKGROUND REMOVAL =================
 def remove_background(img):
-    from rembg import remove  # lazy import prevents startup freeze
+    from rembg import remove
 
     output = remove(img)
+
+    # FIX: rembg may return PIL Image OR bytes depending on version
+    if isinstance(output, Image.Image):
+        return output.convert("RGB")
+
     return Image.open(BytesIO(output)).convert("RGB")
 
 # ================= VISA VALIDATION =================
@@ -150,7 +158,7 @@ with tabs[1]:
                     key="visa_download"
                 )
 
-# ================= BG REMOVE TAB =================
+# ================= BACKGROUND REMOVAL TAB =================
 with tabs[2]:
     file = st.file_uploader(
         "Upload Image",
@@ -162,7 +170,7 @@ with tabs[2]:
         img = Image.open(file)
 
         if st.button("Remove Background", key="bg_btn"):
-            with st.spinner("Processing..."):
+            with st.spinner("Processing AI model..."):
                 result = remove_background(img)
                 save_history(file.name, "BG Removed")
 
