@@ -7,4 +7,3 @@ rembg
 python-docx
 supabase
 numpy
-opencv-python
