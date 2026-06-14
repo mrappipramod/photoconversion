@@ -26,7 +26,7 @@ def save_history(name, action):
         "action": action
     })
 
-# ================= PDF → DOCX (SAFE) =================
+# ================= PDF → TEXT → DOCX =================
 def pdf_to_docx(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
@@ -46,9 +46,9 @@ def pdf_to_docx(pdf_bytes):
 def image_to_text(img):
     return pytesseract.image_to_string(img)
 
-# ================= LAZY BACKGROUND REMOVAL =================
+# ================= BACKGROUND REMOVAL (LAZY SAFE) =================
 def remove_background(img):
-    from rembg import remove  # lazy import (prevents startup crash)
+    from rembg import remove  # lazy import prevents startup freeze
 
     output = remove(img)
     return Image.open(BytesIO(output)).convert("RGB")
@@ -78,7 +78,7 @@ def fix_visa(img):
 # ================= UI =================
 st.set_page_config(page_title="AI Smart Studio", layout="wide")
 
-st.title("⚡ AI Smart Document & Photo Processor (No Login)")
+st.title("⚡ AI Smart Document & Photo Processor")
 
 tabs = st.tabs([
     "📄 PDF OCR",
@@ -87,12 +87,16 @@ tabs = st.tabs([
     "📦 History"
 ])
 
-# ================= PDF =================
+# ================= PDF TAB =================
 with tabs[0]:
-    file = st.file_uploader("Upload PDF", type=["pdf"])
+    file = st.file_uploader(
+        "Upload PDF",
+        type=["pdf"],
+        key="pdf_uploader"
+    )
 
     if file:
-        if st.button("Convert to Word"):
+        if st.button("Convert to Word", key="pdf_btn"):
             with st.spinner("Processing PDF..."):
                 out = pdf_to_docx(file.read())
                 save_history(file.name, "PDF → DOCX")
@@ -102,12 +106,17 @@ with tabs[0]:
                 st.download_button(
                     "Download DOCX",
                     out,
-                    "output.docx"
+                    "output.docx",
+                    key="pdf_download"
                 )
 
-# ================= VISA =================
+# ================= VISA TAB =================
 with tabs[1]:
-    file = st.file_uploader("Upload Image", type=list(ALLOWED_IMAGE_EXT))
+    file = st.file_uploader(
+        "Upload Image",
+        type=list(ALLOWED_IMAGE_EXT),
+        key="visa_uploader"
+    )
 
     if file:
         img = Image.open(file)
@@ -117,7 +126,7 @@ with tabs[1]:
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("Validate"):
+            if st.button("Validate", key="visa_validate"):
                 ok, warns = validate_visa(img)
                 if ok:
                     st.success("Valid visa photo")
@@ -125,7 +134,7 @@ with tabs[1]:
                     st.warning(warns)
 
         with col2:
-            if st.button("Fix"):
+            if st.button("Fix", key="visa_fix"):
                 fixed = fix_visa(img)
                 save_history(file.name, "Visa Fix")
 
@@ -137,17 +146,22 @@ with tabs[1]:
                 st.download_button(
                     "Download",
                     buf.getvalue(),
-                    "visa.jpg"
+                    "visa.jpg",
+                    key="visa_download"
                 )
 
-# ================= BG REMOVE =================
+# ================= BG REMOVE TAB =================
 with tabs[2]:
-    file = st.file_uploader("Upload Image", type=list(ALLOWED_IMAGE_EXT))
+    file = st.file_uploader(
+        "Upload Image",
+        type=list(ALLOWED_IMAGE_EXT),
+        key="bg_uploader"
+    )
 
     if file:
         img = Image.open(file)
 
-        if st.button("Remove Background"):
+        if st.button("Remove Background", key="bg_btn"):
             with st.spinner("Processing..."):
                 result = remove_background(img)
                 save_history(file.name, "BG Removed")
@@ -160,10 +174,11 @@ with tabs[2]:
                 st.download_button(
                     "Download PNG",
                     buf.getvalue(),
-                    "no_bg.png"
+                    "no_bg.png",
+                    key="bg_download"
                 )
 
-# ================= HISTORY =================
+# ================= HISTORY TAB =================
 with tabs[3]:
     st.subheader("Session History")
 
