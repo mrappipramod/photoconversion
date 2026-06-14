@@ -1,9 +1,8 @@
 streamlit
 pillow
-pdf2docx
-pytesseract
-opencv-python-headless
-rembg
-python-docx
-supabase
 numpy
+pymupdf
+python-docx
+pytesseract
+rembg
+supabase
