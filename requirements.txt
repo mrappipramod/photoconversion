@@ -1,6 +1,3 @@
-opencv-python-headless==4.9.0.80
 streamlit
 pdf2docx
 Pillow
-mediapipe
-numpy
