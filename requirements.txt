@@ -4,6 +4,4 @@ numpy
 pymupdf
 python-docx
 pytesseract
-rembg[cpu]
-onnxruntime
-supabase
+rembg
