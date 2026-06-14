@@ -1,3 +1,5 @@
 streamlit
 pdf2docx
 Pillow
+mediapipe
+numpy
