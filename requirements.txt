@@ -1,3 +1,8 @@
 streamlit
+pillow
 pdf2docx
-Pillow
+pytesseract
+opencv-python
+rembg
+python-docx
+supabase numpy
