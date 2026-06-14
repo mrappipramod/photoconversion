@@ -251,10 +251,10 @@ html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
-/* App background */
+/* App background — clean white */
 .stApp {
-    background: #0f1117;
-    color: #e8eaf0;
+    background: #f5f7fa;
+    color: #1a1d23;
 }
 
 /* Main header */
@@ -262,56 +262,58 @@ html, body, [class*="css"] {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 2.4rem;
     font-weight: 700;
-    background: linear-gradient(135deg, #4f8ef7 0%, #a78bfa 60%, #f472b6 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 60%, #db2777 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 0.2rem;
 }
 .hero-sub {
-    color: #8890a8;
+    color: #64748b;
     font-size: 1rem;
     margin-bottom: 2rem;
 }
 
 /* Tab styling */
 .stTabs [data-baseweb="tab-list"] {
-    background: #181c27;
+    background: #ffffff;
     border-radius: 12px;
     padding: 4px;
     gap: 4px;
-    border: 1px solid #2a2f3f;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 8px;
-    color: #8890a8;
+    color: #64748b;
     font-weight: 500;
     font-size: 0.9rem;
     padding: 0.5rem 1.1rem;
 }
 .stTabs [aria-selected="true"] {
-    background: #232840 !important;
-    color: #4f8ef7 !important;
+    background: #eff6ff !important;
+    color: #2563eb !important;
 }
 
 /* Cards */
 .card {
-    background: #181c27;
-    border: 1px solid #2a2f3f;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 14px;
     padding: 1.5rem;
     margin-bottom: 1rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .card-title {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: #c8d0e8;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e293b;
     margin-bottom: 0.75rem;
 }
 
 /* Buttons */
 .stButton > button {
-    background: linear-gradient(135deg, #4f8ef7, #7c5af7);
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
     color: white;
     border: none;
     border-radius: 8px;
@@ -322,63 +324,82 @@ html, body, [class*="css"] {
 }
 .stButton > button:hover {
     opacity: 0.88;
+    color: white;
 }
 
 /* Download button */
 .stDownloadButton > button {
-    background: #1e2538;
-    color: #4f8ef7;
-    border: 1px solid #4f8ef7;
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
     border-radius: 8px;
     font-weight: 600;
+}
+.stDownloadButton > button:hover {
+    background: #dbeafe;
+    color: #1d4ed8;
 }
 
 /* File uploader */
 [data-testid="stFileUploader"] {
-    background: #181c27;
-    border: 1.5px dashed #2a2f3f;
+    background: #ffffff;
+    border: 1.5px dashed #cbd5e1;
     border-radius: 12px;
     padding: 1rem;
 }
 
-/* Selectbox, radio */
-.stSelectbox > div > div, .stRadio > div {
-    background: #181c27;
-    border-color: #2a2f3f !important;
-    border-radius: 8px;
-    color: #e8eaf0;
-}
-
 /* Success / warning */
-.stSuccess { background: #0d2a1f; border-color: #1a7a4a; color: #4ade80; border-radius: 8px; }
-.stWarning { background: #2a1e0a; border-color: #7a4a1a; color: #fbbf24; border-radius: 8px; }
+.stSuccess { background: #f0fdf4; border-color: #86efac; color: #166534; border-radius: 8px; }
+.stWarning { background: #fffbeb; border-color: #fcd34d; color: #92400e; border-radius: 8px; }
 
 /* History badge */
 .hist-badge {
-    display: inline-block;
-    background: #232840;
-    border: 1px solid #2a2f3f;
+    display: block;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 8px;
-    padding: 0.35rem 0.75rem;
+    padding: 0.4rem 0.85rem;
     font-size: 0.85rem;
-    color: #8890a8;
+    color: #475569;
     margin-bottom: 0.4rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 /* Info chip */
 .chip {
     display: inline-block;
-    background: #1e2538;
+    background: #eff6ff;
     border-radius: 20px;
     padding: 2px 10px;
     font-size: 0.78rem;
-    color: #4f8ef7;
+    color: #2563eb;
     margin-right: 6px;
-    border: 1px solid #2a3050;
+    border: 1px solid #bfdbfe;
+    font-weight: 500;
 }
 
 /* Divider */
-.divider { border-top: 1px solid #2a2f3f; margin: 1.2rem 0; }
+.divider { border-top: 1px solid #e2e8f0; margin: 1.2rem 0; }
+
+/* General text visibility fixes */
+label, .stSelectbox label, .stRadio label, .stSlider label,
+.stMultiSelect label, .stFileUploader label {
+    color: #1e293b !important;
+    font-weight: 500;
+}
+p, span, div { color: #334155; }
+h1, h2, h3 { color: #0f172a; }
+
+/* Info boxes */
+.stInfo { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; border-radius: 8px; }
+
+/* Selectbox text */
+.stSelectbox > div > div {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    color: #1e293b;
+    border-radius: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 
