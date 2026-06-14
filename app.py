@@ -1,10 +1,8 @@
 import streamlit as st
-import os
-from io import BytesIO
 from PIL import Image, ImageStat, ImageEnhance
+from io import BytesIO
 import uuid
-
-import fitz  # PyMuPDF (safe PDF engine)
+import fitz  # PyMuPDF
 import pytesseract
 
 # ================= CONFIG =================
@@ -16,24 +14,9 @@ VISA_STANDARD = {
 
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "bmp", "tiff", "webp"}
 
-# ================= SESSION =================
+# ================= SESSION HISTORY =================
 if "history" not in st.session_state:
     st.session_state.history = []
-
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-# ================= SUPABASE (LAZY) =================
-supabase = None
-
-def get_supabase():
-    global supabase
-    if supabase is None:
-        from supabase import create_client
-        SUPABASE_URL = "YOUR_SUPABASE_URL"
-        SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return supabase
 
 # ================= HISTORY =================
 def save_history(name, action):
@@ -43,7 +26,7 @@ def save_history(name, action):
         "action": action
     })
 
-# ================= PDF → TEXT → DOCX =================
+# ================= PDF → DOCX (SAFE) =================
 def pdf_to_docx(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
@@ -63,9 +46,9 @@ def pdf_to_docx(pdf_bytes):
 def image_to_text(img):
     return pytesseract.image_to_string(img)
 
-# ================= BACKGROUND REMOVAL (LAZY) =================
+# ================= LAZY BACKGROUND REMOVAL =================
 def remove_background(img):
-    from rembg import remove  # lazy import FIX (prevents freeze)
+    from rembg import remove  # lazy import (prevents startup crash)
 
     output = remove(img)
     return Image.open(BytesIO(output)).convert("RGB")
@@ -92,42 +75,10 @@ def fix_visa(img):
 
     return img.resize((600, 600))
 
-# ================= AUTH =================
-def login_ui():
-    st.title("🔐 Login")
-
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Login"):
-            client = get_supabase()
-            res = client.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-            st.session_state.user = res.user
-            st.rerun()
-
-    with col2:
-        if st.button("Sign Up"):
-            client = get_supabase()
-            client.auth.sign_up({
-                "email": email,
-                "password": password
-            })
-            st.success("Check email to confirm")
-
 # ================= UI =================
 st.set_page_config(page_title="AI Smart Studio", layout="wide")
 
-if st.session_state.user is None:
-    login_ui()
-    st.stop()
-
-st.title("⚡ AI Smart Document & Photo Processor")
+st.title("⚡ AI Smart Document & Photo Processor (No Login)")
 
 tabs = st.tabs([
     "📄 PDF OCR",
@@ -145,6 +96,8 @@ with tabs[0]:
             with st.spinner("Processing PDF..."):
                 out = pdf_to_docx(file.read())
                 save_history(file.name, "PDF → DOCX")
+
+                st.success("Done!")
 
                 st.download_button(
                     "Download DOCX",
@@ -212,7 +165,10 @@ with tabs[2]:
 
 # ================= HISTORY =================
 with tabs[3]:
-    st.subheader("History")
+    st.subheader("Session History")
+
+    if not st.session_state.history:
+        st.info("No actions yet")
 
     for item in st.session_state.history[::-1]:
         st.write(f"📄 {item['name']} → {item['action']}")
